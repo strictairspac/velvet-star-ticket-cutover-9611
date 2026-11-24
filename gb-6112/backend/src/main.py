@@ -8,7 +8,7 @@ from src.config.settings import SEED_DEMO
 from src.domain.scenario import CONFIG
 from src.middlewares.errors import catch_errors
 from src.middlewares.request_id import request_id
-from src.routes import cases, runs, session, system
+from src.routes import cases, runs, session, system, tickets
 
 
 @asynccontextmanager
@@ -25,5 +25,5 @@ async def lifespan(_app):
 app = FastAPI(title=CONFIG["title"], lifespan=lifespan)
 app.middleware("http")(catch_errors)
 app.middleware("http")(request_id)
-for group in (system, session, cases, runs):
+for group in (system, session, cases, runs, tickets):
     app.include_router(group.router)

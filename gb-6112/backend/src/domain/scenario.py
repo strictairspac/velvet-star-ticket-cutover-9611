@@ -1,7 +1,7 @@
 from .collation import isolated_tables
 from .fixtures import FIXTURES
 from .repairs import plan
-from .tickets import ticket_rows
+from .tickets import merged_tickets, ticket_rows
 
 
 CONFIG = {
@@ -25,20 +25,26 @@ def validate(payload):
     ticket_rows(payload)
 
 
-def run(payload, parameter, db):
-    tickets = ticket_rows(payload)
+def run(payload, parameter, db, supplements=()):
+    """Trial-write the whole volume against the target collation.
+
+    ``supplements`` are the tickets registered while the volume is being
+    prepared; they join the original volume and take part in the same
+    same-workshop duplicate check.
+    """
+    tickets = merged_tickets(payload, supplements)
     with isolated_tables(db) as tables:
         tables.source_rows(tickets)
-        planned, collision_count, repair_count, verified_count = plan(tables, tickets, parameter)
+        planned = plan(tables, tickets, parameter)
     summary = (
-        f"{collision_count} 组同间冲突，改号 {repair_count} 张后全卷通过目标唯一约束。"
-        if repair_count <= parameter else f"需要改号 {repair_count} 张，预算 {parameter} 张；留待制签组处理。"
+        f"{planned.collision_count} 组同间冲突，改号 {planned.required} 张后全卷通过目标唯一约束。"
+        if planned.permitted else f"需要改号 {planned.required} 张，预算 {parameter} 张；留待制签组处理。"
     )
     return {
         "summary": summary,
-        "metrics": {"冲突组": collision_count, "需改号": repair_count, "通过试写": verified_count},
+        "metrics": {"冲突组": planned.collision_count, "需改号": planned.required, "通过试写": planned.verified_count},
         "rows": [
             {"工票 ID": ticket.id, "工作间": ticket.workshop, "原票号": ticket.code, "目标票号": proposed, "动作": action}
-            for ticket, proposed, action in planned
+            for ticket, proposed, action in planned.rows
         ],
     }

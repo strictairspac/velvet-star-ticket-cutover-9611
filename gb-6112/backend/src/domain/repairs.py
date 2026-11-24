@@ -1,4 +1,14 @@
 from collections import defaultdict
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class PlanResult:
+    rows: list
+    collision_count: int
+    required: int
+    verified_count: int
+    permitted: bool
 
 
 def reserve_codes(tables, tickets):
@@ -40,4 +50,4 @@ def plan(tables, tickets, budget):
     if count != (len(tickets) if permitted else len(by_scope)):
         raise ValueError("目标库试写行数和改号计划不一致")
     rows.sort(key=lambda entry: (entry[0].serial, entry[0].id))
-    return rows, collision_count, required, count
+    return PlanResult(rows, collision_count, required, count, permitted)

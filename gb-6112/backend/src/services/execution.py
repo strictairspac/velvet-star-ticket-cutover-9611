@@ -8,10 +8,27 @@ from src.constants.job_state import JobState
 from src.domain import scenario
 from src.models.cases import cases
 from src.models.runs import runs
+from src.models.tickets import case_supplements
 from src.services.audit import record
+from src.services.tickets import supplement_tickets
 from src.utils.serial import content_digest
 
 logger = logging.getLogger(__name__)
+
+
+def snapshot(db, case_id):
+    """The case row and supplements, read under the same lock as publication.
+
+    Registration of supplementary tickets locks the case row, so a snapshot
+    taken while holding that lock always includes every supplement registered
+    before the switch starts.
+    """
+    case = db.execute(select(cases).where(cases.c.id == case_id).with_for_update()).mappings().first()
+    supplements = db.execute(
+        select(case_supplements).where(case_supplements.c.case_id == case_id)
+        .order_by(case_supplements.c.serial, case_supplements.c.ticket_id)
+    ).mappings().all()
+    return case["payload"], supplement_tickets(supplements)
 
 
 def service_one():
@@ -23,9 +40,9 @@ def service_one():
         task = db.execute(statement).mappings().first()
         if task is None:
             return False
-        payload = db.scalar(select(cases.c.payload).where(cases.c.id == task["case_id"]))
+        payload, supplements = snapshot(db, task["case_id"])
         try:
-            result = scenario.run(payload, task["parameter"], db)
+            result = scenario.run(payload, task["parameter"], db, supplements)
             output = {"status": JobState.DONE, "result": result, "digest": content_digest(result)}
         except Exception as exc:
             # Let the failed database transaction roll back before persisting the error.
